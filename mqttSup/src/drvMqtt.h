@@ -14,6 +14,7 @@
 #include "mqttClient.h"
 #include "json/json.hpp"
 #include <unordered_set>
+#include "drvBridge.h"
 
 using namespace Autoparam::Convenience;
 using json = nlohmann::json;
@@ -56,6 +57,7 @@ protected:
 
 private:
   MqttClient mqttClient;
+  TcpServer server;
   /* autoParam specific methods */
   DeviceAddress* parseDeviceAddress(std::string const& function, std::string const& arguments);
   DeviceVariable* createDeviceVariable(DeviceVariable* baseVar);

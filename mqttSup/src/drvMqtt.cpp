@@ -131,7 +131,8 @@ MqttDriver::MqttDriver(const char* portName, const char* brokerUrl, const char* 
   cfg.clientId = mqttClientID;
   cfg.qos = qos;
   return cfg;
-    }())
+    }()),
+  server()
 {
   mqttClient.setMessageCb([this](const std::string& topic, const std::string& payload) {
     onMessageCb(this, topic, payload);
@@ -208,6 +209,20 @@ void MqttDriver::onConnectCb(Autoparam::Driver* driver, const std::string& reaso
     "%s::%s: Connected to broker\n", driverName, functionName);
   // subscribe to topics in  I/O Intr records
   auto vars = pself->getInterruptVariables();
+  // register callback - when TCP message arrives, parse it and relay to MQTT
+  pself->server.setup();
+  pself->server.start([pself](std::string& msg) {
+    try {
+      json object = json::parse(msg);
+      std::string topic = object["topic"];
+      std::string payload = object["message"];
+      pself->mqttClient.publish(topic, payload);
+    } catch (std::exception& exc) {
+      asynPrint(pself->pasynUserSelf, ASYN_TRACEIO_DRIVER | ASYN_TRACE_ERROR,
+        "lambda::Failed to extract topic/message from socket\n");
+      return;
+    }
+  });
   for (auto itr = vars.begin(); itr != vars.end(); itr++) {
     auto& deviceVar = *static_cast<MqttTopicVariable*>(*itr);
     MqttTopicAddr const& addr = static_cast<MqttTopicAddr const&>(deviceVar.address());
@@ -255,6 +270,13 @@ void MqttDriver::onMessageCb(Autoparam::Driver* driver, const std::string& topic
     MqttTopicAddr const& addr = static_cast<MqttTopicAddr const&>(deviceVar.address());
     if (addr.topicName != topic)
       continue;
+    // When MQTT message arrives, mirror it into TCP stream
+    json sock_obj = json::object({
+      {"topic", topic},
+      {"message", payload}
+    });
+    val = sock_obj.dump();
+    pself->server.write(val);
     if (addr.format == MqttTopicAddr::JSON) {
       try {
         json root = json::parse(payload);
